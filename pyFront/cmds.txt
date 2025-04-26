@@ -1,0 +1,6 @@
+./producers/producer Producer1 &
+
+rm -f /tmp/manager_socket
+./consumer/manager
+
+python3 gui/frontend.py
