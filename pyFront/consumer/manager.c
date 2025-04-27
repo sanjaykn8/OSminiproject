@@ -8,12 +8,14 @@
 #include <sys/un.h>
 #include <sys/resource.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/types.h>
 
 #define SOCKET_PATH    "/tmp/manager_socket"
 #define PID_FILE       "/tmp/producer_pids"
+#define PIPE_PATH      "/tmp/producer_pipe"
 #define MAX_PRODUCERS  1024
 
-// Read PIDs
 static int read_pids(pid_t *pids) {
     FILE *fp = fopen(PID_FILE, "r");
     if (!fp) return 0;
@@ -23,7 +25,6 @@ static int read_pids(pid_t *pids) {
     return count;
 }
 
-// Get state
 static char get_state(pid_t pid) {
     char path[64], buf[256];
     snprintf(path, sizeof(path), "/proc/%d/stat", pid);
@@ -45,7 +46,6 @@ static const char* state_str(char s) {
     }
 }
 
-// Handle one client
 static void handle_client(int client) {
     FILE *in = fdopen(client, "r");
     FILE *out = fdopen(dup(client), "w");
@@ -89,9 +89,11 @@ static void handle_client(int client) {
 }
 
 int main(void) {
-    signal(SIGPIPE, SIG_IGN);  // Don't crash if client disconnects
+    signal(SIGPIPE, SIG_IGN);
 
     unlink(SOCKET_PATH);
+    unlink(PIPE_PATH);
+
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) { perror("socket"); exit(1); }
 
@@ -110,20 +112,50 @@ int main(void) {
         exit(1);
     }
 
+    // Create the named pipe
+    if (mkfifo(PIPE_PATH, 0666) == -1 && errno != EEXIST) {
+        perror("mkfifo");
+        exit(1);
+    }
+
     printf("Manager listening on %s\n", SOCKET_PATH);
 
+    int pipe_fd = open(PIPE_PATH, O_RDONLY | O_NONBLOCK);
+    if (pipe_fd == -1) {
+        perror("open pipe");
+        exit(1);
+    }
+
+    fd_set fds;
+    int max_fd = (sock > pipe_fd ? sock : pipe_fd) + 1;
+
     while (1) {
-        int client = accept(sock, NULL, NULL);
-        if (client >= 0) {
-            pid_t pid = fork();
-            if (pid == 0) { // child
-                close(sock);
-                handle_client(client);
-                close(client);
-                exit(0);
+        FD_ZERO(&fds);
+        FD_SET(sock, &fds);
+        FD_SET(pipe_fd, &fds);
+
+        if (select(max_fd, &fds, NULL, NULL, NULL) > 0) {
+            if (FD_ISSET(sock, &fds)) {
+                int client = accept(sock, NULL, NULL);
+                if (client >= 0) {
+                    pid_t pid = fork();
+                    if (pid == 0) {
+                        close(sock);
+                        handle_client(client);
+                        close(client);
+                        exit(0);
+                    }
+                    close(client);
+                }
             }
-            close(client); // parent
+            if (FD_ISSET(pipe_fd, &fds)) {
+                char buf[128];
+                int bytes = read(pipe_fd, buf, sizeof(buf) - 1);
+                if (bytes > 0) {
+                    buf[bytes] = '\0';
+                    printf("Received from producer: %s", buf);
+                }
+            }
         }
     }
 }
-
