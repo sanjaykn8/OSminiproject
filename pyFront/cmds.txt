@@ -1,3 +1,6 @@
+gcc producers/producer.c -o producers/producer
+gcc consumer/manager.c  -o consumer/manager
+
 ./producers/producer Producer1 &
 
 rm -f /tmp/manager_socket
