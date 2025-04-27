@@ -16,7 +16,8 @@ def send_command(cmd):
         while True:
             try:
                 chunk = sock.recv(1024)
-                if not chunk: break
+                if not chunk:
+                    break
                 data += chunk
             except socket.timeout:
                 break
@@ -37,7 +38,9 @@ def update_list_async():
     def ui():
         tree.delete(*tree.get_children())
         for pid, state, prio in rows:
-            tree.insert('', 'end', values=(pid, state, prio), tags=(state.lower(),))
+            display_state = "Running" if state.lower() == "sleeping" else state
+            display_tag = "running" if state.lower() == "sleeping" else state.lower()
+            tree.insert('', 'end', values=(pid, display_state, prio), tags=(display_tag,))
         if selected:
             for iid in tree.get_children():
                 if tree.item(iid)['values'][0] == selected:
@@ -87,33 +90,39 @@ def show_context_menu(event):
         tree.selection_set(iid)
         menu.post(event.x_root, event.y_root)
 
+# ------------------------- UI -------------------------------
+
 root = tk.Tk()
 root.title("Mini Task Manager")
-root.geometry("520x420")
-root.configure(bg="#1e1e1e")
+root.geometry("600x450")
+root.configure(bg="#1c1c1c")
 
 style = ttk.Style()
 style.theme_use("clam")
 style.configure("Treeview",
-                background="#2e2e2e",
+                background="#262626",
                 foreground="white",
-                fieldbackground="#2e2e2e",
-                rowheight=24,
+                fieldbackground="#262626",
+                rowheight=26,
                 font=('Consolas', 11))
-style.map("Treeview", background=[('selected', '#4a4a4a')])
+style.map("Treeview",
+          background=[('selected', '#3a3a3a')],
+          foreground=[('selected', 'white')])
 
 frame = ttk.Frame(root, padding=10)
 frame.pack(fill='both', expand=True)
 
-tree = ttk.Treeview(frame, columns=('PID','State','Priority'), show='headings')
-for col in ('PID','State','Priority'):
-    tree.heading(col, text=col)
-    tree.column(col, anchor='center')
-tree.tag_configure('running', background='#004d00')
-tree.tag_configure('sleeping', background='#333333')
-tree.tag_configure('stopped', background='#666600')
-tree.tag_configure('zombie', background='#660000')
-tree.tag_configure('unknown', background='#444444')
+tree = ttk.Treeview(frame, columns=('PID', 'State', 'Priority'), show='headings')
+for col in ('PID', 'State', 'Priority'):
+    tree.heading(col, text=col, anchor='center')
+    tree.column(col, anchor='center', width=150)
+
+# Tag colors
+tree.tag_configure('running', background='#006400')      # dark green for running
+tree.tag_configure('sleeping', background='#333333')      # gray for original sleeping (won't be used now)
+tree.tag_configure('stopped', background='#8B8000')       # darker yellow
+tree.tag_configure('zombie', background='#8B0000')        # dark red
+tree.tag_configure('unknown', background='#555555')       # dark gray
 tree.pack(fill='both', expand=True)
 
 menu = tk.Menu(root, tearoff=0)
@@ -127,17 +136,17 @@ tree.bind("<Button-3>", show_context_menu)
 btn_frame = ttk.Frame(root, padding=8)
 btn_frame.pack(fill='x')
 for text, cmd in [("Pause", pause_proc), ("Resume", resume_proc), ("Kill", kill_proc)]:
-    ttk.Button(btn_frame, text=text, command=cmd).pack(side='left', padx=6)
+    ttk.Button(btn_frame, text=text, command=cmd).pack(side='left', padx=8)
 prio_entry = ttk.Entry(btn_frame, width=5)
-prio_entry.pack(side='left', padx=6)
+prio_entry.pack(side='left', padx=8)
 prio_entry.insert(0, '0')
-ttk.Button(btn_frame, text="Set Priority", command=set_priority).pack(side='left', padx=6)
+ttk.Button(btn_frame, text="Set Priority", command=set_priority).pack(side='left', padx=8)
 
-status_var = tk.StringVar(value="Waiting for manager…")
+status_var = tk.StringVar(value="Connecting to manager...")
 status = ttk.Label(root, textvariable=status_var, anchor='w',
-                   background='#1e1e1e', foreground='white', padding=4)
+                   background="#1c1c1c", foreground='white', padding=6,
+                   font=('Consolas', 10))
 status.pack(fill='x', side='bottom')
 
 root.after(100, schedule_update)
 root.mainloop()
-
